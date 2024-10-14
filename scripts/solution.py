@@ -28,7 +28,7 @@ spark = SparkSession.builder \
         .getOrCreate()
 
 # Create a list of dictionaries to simulate the data. Autoloader can be used for this kind of streaming application
-flight_rdd = [
+flight_data = [
                 {   
                     "stationId": "CYVR", 
                     "issueTime": "2022-03-30T20:40:00Z",
@@ -95,8 +95,8 @@ flight_schema = StructType(
                             ]
                              )
 
-# create a spark DataFrame using rdd and schema
-flight_df = spark.createDataFrame(flight_rdd, schema=flight_schema)
+# create a spark DataFrame using data and schema
+flight_df = spark.createDataFrame(flight_data, schema=flight_schema)
 
 #display intial 5 records of flight_df
 flight_df.head(5)
