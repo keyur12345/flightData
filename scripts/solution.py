@@ -6,9 +6,6 @@
 # MAGIC - You can increase the size limit for a small DF in the broadcast join. 10 MB is by default.
 # MAGIC - Autoloader for streaming pipeline
 # MAGIC - Remove the display()
-# MAGIC
-
-# COMMAND ----------
 
 # Import the libraries
 from pyspark.sql import SparkSession
@@ -17,12 +14,8 @@ from pyspark.sql.types import StructType, StructField, StringType, IntegerType, 
 import json
 import time
 
-# COMMAND ----------
-
 # Saving the start time for calculating the total time taken
 start = time.time()
-
-# COMMAND ----------
 
 # Initialize the Spark session and setting the relevant spark configs for the notebook
 spark = SparkSession.builder \
@@ -33,8 +26,6 @@ spark = SparkSession.builder \
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
         .config("spark.sql.adaptive.coalescePartitions.parallelismFirst", "true") \
         .getOrCreate()
-
-# COMMAND ----------
 
 # Create a list of dictionaries to simulate the data. Autoloader can be used for this kind of streaming application
 flight_rdd = [
@@ -90,8 +81,6 @@ flight_rdd = [
                 }
             ]
 
-# COMMAND ----------
-
 # Define the schema for the incoming data
 flight_schema = StructType(
                             [
@@ -105,9 +94,6 @@ flight_schema = StructType(
                                 StructField("type", StringType()),                
                             ]
                              )
-                                                              
-
-# COMMAND ----------
 
 # create a spark DataFrame using rdd and schema
 flight_df = spark.createDataFrame(flight_rdd, schema=flight_schema)
@@ -115,18 +101,12 @@ flight_df = spark.createDataFrame(flight_rdd, schema=flight_schema)
 #display intial 5 records of flight_df
 flight_df.head(5)
 
-# COMMAND ----------
-
 # Sort the dataframe based on the issueTime column for incremental processing
 flight_df = flight_df.sort(flight_df.issueTime)
-
-# COMMAND ----------
 
 # assign a key to uniquely identify a single record
 flightWithId_df = flight_df.withColumn("flightId", F.monotonically_increasing_id()).persist()
 # flightWithId_df.display()
-
-# COMMAND ----------
 
 # convert the data types of all columns to the appropriate data types
 flightWithId_df = flightWithId_df.withColumn("issueTime", F.col("issueTime").cast("timestamp"))\
@@ -135,10 +115,6 @@ flightWithId_df = flightWithId_df.withColumn("issueTime", F.col("issueTime").cas
                                 .withColumn("windDirection", F.col("windDirection").cast("integer"))\
                                 .withColumn("windSpeed", F.format_number(F.col("windSpeed").cast("float"), 1).cast("decimal(3,1)"))
                 
-
-# COMMAND ----------
-
-
 # Generate hourly timestamps
 # Sequence() with a 1 hour interval can be used to generate a list of hourly timestamps and explode() can be used to explode that sequence to generate hourly timestamps
 hourly_df = flightWithId_df.withColumn(
@@ -164,42 +140,25 @@ hourly_df = flightWithId_df.withColumn(
 # Show the resulting DataFrame
 # hourly_df.display()
 
-
-# COMMAND ----------
-
 # Unfortunately, Buckets are not supported with Delta lakes in Databricks.
 # However, depending on the business use case, we can define our partitions instead. Ideally, we should use hourly_timestamps as a partition key. But again, that would create 24*30*12 = 8640 small paritions (with hardly 5-10 records based on the overlapping hours) just to process a year's worth of data. So, here I am going with a bigger partition volume by creating year and month, hence Extracting yyyy-MM from the issueTime column to use as a partition key
-
 updated_hourly_df = hourly_df.withColumn("yearMonth", F.date_format(F.col("hourly_timestamps"), "yyyy-MM"))
 # display(updated_hourly_df)
 
-# COMMAND ----------
-
 # Assign appropriate data type for the hourly_timestamps
 updated_hourly_df = updated_hourly_df.withColumn("hourly_timestamps", F.date_format(F.to_timestamp("hourly_timestamps", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"), "yyyy-MM-dd HH:mm:ss"))
-
-# COMMAND ----------
 
 # Persist the DataFrame for easy retrieval
 updated_hourly_df.persist()
 # display(updated_hourly_df)
 
-# COMMAND ----------
-
 # partition key can be decided based on the business use case and the data volume 
 partitioned_df = updated_hourly_df.repartition("yearMonth").persist()
 
-# COMMAND ----------
-
 # display(partitioned_df)
-
-# COMMAND ----------
 
 # Create a temp view of the partitioned data
 partitioned_df.createOrReplaceTempView("flight_withHourlyTS")
-
-# COMMAND ----------
-
 
 # Find the latest flightId to map with the latest issue Date since we are relying on the latest forecasted data and corresponding entries to assign it to the respective hourly_timestamp
 hourlyTimestamps_df = spark.sql("""
@@ -210,19 +169,13 @@ hourlyTimestamps_df = spark.sql("""
 """)
 # display(hourlyTimestamps_df)
 
-# COMMAND ----------
-
 # Perform broadcast join on smaller dataframe hourlyTimestamps_df to optimize it for hourly data processing
 flight_withHourlyTS_updated = partitioned_df.join(F.broadcast(hourlyTimestamps_df), on=["flightId", "hourly_timestamps"], how="inner")
 # display(flight_withHourlyTS_updated)
 
-# COMMAND ----------
-
 # Flatten cloudCoverage JSON into separate columns
 flight_withHourlyTS_updated_rdd = flight_withHourlyTS_updated.rdd.flatMap(lambda row: [(row.hourly_timestamps, coverage['cover'], coverage['baseHeight'], coverage['type'])\
                                                for coverage in json.loads(row.cloudCoverage)])
-
-# COMMAND ----------
 
 # Create DataFrame for cloud coverage and assign appropriate column names
 cloud_coverage_df = spark.createDataFrame(flight_withHourlyTS_updated_rdd, ["hourly_timestamps", "cover", "baseHeight", "type"])
@@ -230,8 +183,6 @@ cloud_coverage_df = cloud_coverage_df.withColumnRenamed("cover", "cloudCoverage_
                                         .withColumnRenamed("baseHeight", "cloudCoverage_baseHeight") \
                                         .withColumnRenamed("type", "cloudCoverage_type")
 # display(cloud_coverage_df)
-
-# COMMAND ----------
 
 # Combined the data using flight_withHourlyTS_updated and cloud_coverage_df
 all_up_df = flight_withHourlyTS_updated.join(cloud_coverage_df, on='hourly_timestamps', how='left')
@@ -250,17 +201,11 @@ all_up_df = all_up_df.select(
                         ).persist()
 # display(all_up_df)
 
-# COMMAND ----------
-
 # partition key can be decided based on the business use case and the data volume 
 all_up_df.repartition("yearMonth")
 
-# COMMAND ----------
-
 # Calculate metrics using SQL
 all_up_df.createOrReplaceTempView("all_up_df")
-
-# COMMAND ----------
 
 # Average wind speed and cloud coverage metrics
 all_metrics_except_windDirection = spark.sql("""
@@ -273,9 +218,6 @@ all_metrics_except_windDirection = spark.sql("""
         ORDER BY hourly_timestamps
 """)
 # all_metrics_except_windDirection.display()
-
-
-# COMMAND ----------
 
 # the most common wind direction
 mode_df = spark.sql("""
@@ -291,8 +233,6 @@ mode_df = spark.sql("""
 """) 
 # mode_df.display()
 
-# COMMAND ----------
-
 # Combine metrics into final DataFrame and alias the output columns properly
 final_df = all_metrics_except_windDirection.join(mode_df, on='hourly_timestamps').select(
     F.col("hourly_timestamps").alias("Hour"),
@@ -303,17 +243,11 @@ final_df = all_metrics_except_windDirection.join(mode_df, on='hourly_timestamps'
 ).persist()
 # display(final_df)
 
-# COMMAND ----------
-
 # Create a new database called "flightDB"
 # spark.sql("CREATE DATABASE IF NOT EXISTS flightDB")
 
-# COMMAND ----------
-
 # Use the newly created database
 spark.sql("USE flightDB")
-
-# COMMAND ----------
 
 # spark.sql("""
 #           CREATE TABLE IF NOT EXISTS flights (
@@ -328,8 +262,6 @@ spark.sql("USE flightDB")
 #             )
 #           """)
 
-# COMMAND ----------
-
 # MAGIC %sql
 # MAGIC -- ALTER TABLE flights 
 # MAGIC -- SET TBLPROPERTIES (
@@ -341,32 +273,21 @@ spark.sql("USE flightDB")
 # MAGIC -- ALTER TABLE flights 
 # MAGIC -- RENAME COLUMN Average_wind_speed TO `Average wind speed (knots)`;
 
-# COMMAND ----------
-
-# DBTITLE 1,s
 # MAGIC %sql
 # MAGIC -- ALTER TABLE flights
 # MAGIC -- RENAME COLUMN Most_common_wind_direction TO `Most common wind direction (degrees)`;
-
-# COMMAND ----------
 
 # MAGIC %sql
 # MAGIC -- ALTER TABLE flights
 # MAGIC -- RENAME COLUMN `Most common wind direction (degrees)` TO `Most common wind direction (degree)`;
 
-# COMMAND ----------
-
 # MAGIC %sql
 # MAGIC -- ALTER TABLE flights
 # MAGIC -- RENAME COLUMN Maximum_cloud_coverage TO `Maximum cloud coverage (%)`
 
-# COMMAND ----------
-
 # MAGIC %sql
 # MAGIC -- ALTER TABLE flights
 # MAGIC -- RENAME COLUMN Average_cloud_base_height TO `Average cloud base height (feet)`
-
-# COMMAND ----------
 
 # Column name adjustments based on the required output format
 final_df = final_df.withColumn("Average wind speed (knots)", final_df["Average wind speed (knots)"].cast("decimal(3,1)")) \
@@ -374,17 +295,11 @@ final_df = final_df.withColumn("Average wind speed (knots)", final_df["Average w
                     .withColumn("Maximum cloud coverage (%)", final_df["Maximum cloud coverage (%)"].cast("float")) \
                     .withColumn("Average cloud base height (feet)", final_df["Average cloud base height (feet)"].cast("int"))
 
-# COMMAND ----------
-
 # Using mergedSchema to enable schema evolution on the final delta table
 final_df.write.option("mergeSchema", "true").mode("append").saveAsTable("flights")
 
-# COMMAND ----------
-
 # Use OPTIMIZE to reduce the number of files in the delta table
 spark.sql(f"OPTIMIZE flights")
-
-# COMMAND ----------
 
 # Releasing resources from the memory after the process is completed
 flightWithId_df.unpersist()
@@ -394,14 +309,10 @@ partitioned_df.unpersist()
 all_up_df.unpersist()
 final_df.unpersist()
 
-# COMMAND ----------
-
 # Calculate the total execution time
 end = time.time()
 execution_time = end - start
 print(f"Execution Time: {execution_time} seconds")
-
-# COMMAND ----------
 
 # Stop the Spark session
 spark.stop()
