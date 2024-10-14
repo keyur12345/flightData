@@ -19,7 +19,7 @@ start = time.time()
 
 # Initialize the Spark session and setting the relevant spark configs for the notebook
 spark = SparkSession.builder \
-        .appName("Hourly Flight Data") \
+        .appName("Hourly Weather Summary") \
         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
         .config("spark.sql.adaptive.enabled", "true") \
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic") \
