@@ -13,3 +13,4 @@ percentage and the average base height of clouds.
 • You can increase the size limit for a small DF in the broadcast join. 10 MB is by default. </br>
 • Autoloader for streaming pipeline. </br>
 • Remove the display statements. </br>
+• Unique ID should be named properly instead of "flightId". Few DF names can be upated to appropriate names based on the business context.
