@@ -6,6 +6,7 @@
 # MAGIC - You can increase the size limit for a small DF in the broadcast join. 10 MB is by default.
 # MAGIC - Autoloader for streaming pipeline
 # MAGIC - Remove the display()
+# MAGIC - Unique ID should be named properly instead of "flightId". Few DF names can be upated to appropriate names based on the business context.
 
 # Import the libraries
 from pyspark.sql import SparkSession
