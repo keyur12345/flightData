@@ -9,7 +9,7 @@
 
 # Import the libraries
 from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
+from pyspark.sql.functions import col, monotonically_increasing_id, format_number, sequence, explode, expr, date_format, to_timestamp, broadcast
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, TimestampType
 import json
 import time
@@ -104,36 +104,36 @@ flight_df.head(5)
 flight_df = flight_df.sort(flight_df.issueTime)
 
 # assign a key to uniquely identify a single record
-flightWithId_df = flight_df.withColumn("flightId", F.monotonically_increasing_id()).persist()
+flightWithId_df = flight_df.withColumn("flightId", monotonically_increasing_id()).persist()
 # flightWithId_df.display()
 
 # convert the data types of all columns to the appropriate data types
-flightWithId_df = flightWithId_df.withColumn("issueTime", F.col("issueTime").cast("timestamp"))\
-                                .withColumn("forecastValidFrom", F.col("forecastValidFrom").cast("timestamp"))\
-                                .withColumn("forecastValidTo", F.col("forecastValidTo").cast("timestamp"))\
-                                .withColumn("windDirection", F.col("windDirection").cast("integer"))\
-                                .withColumn("windSpeed", F.format_number(F.col("windSpeed").cast("float"), 1).cast("decimal(3,1)"))
+flightWithId_df = flightWithId_df.withColumn("issueTime", col("issueTime").cast("timestamp"))\
+                                .withColumn("forecastValidFrom", col("forecastValidFrom").cast("timestamp"))\
+                                .withColumn("forecastValidTo", col("forecastValidTo").cast("timestamp"))\
+                                .withColumn("windDirection", col("windDirection").cast("integer"))\
+                                .withColumn("windSpeed", format_number(col("windSpeed").cast("float"), 1).cast("decimal(3,1)"))
                 
 # Generate hourly timestamps
 # Sequence() with a 1 hour interval can be used to generate a list of hourly timestamps and explode() can be used to explode that sequence to generate hourly timestamps
 hourly_df = flightWithId_df.withColumn(
     "hourly_timestamps",
-    F.sequence(
-        F.col("forecastValidFrom"),
-        F.col("forecastValidTo"),
-        F.expr("INTERVAL 1 HOUR")
+    sequence(
+        col("forecastValidFrom"),
+        col("forecastValidTo"),
+        expr("INTERVAL 1 HOUR")
     )
 ).select(
-    F.explode("hourly_timestamps").alias("hourly_timestamps")\
-    , F.col("flightId")
-    , F.col("stationId")
-    , F.col("issueTime")
-    , F.col("forecastValidFrom")
-    , F.col("forecastValidTo")
-    , F.col("windDirection")
-    , F.col("windSpeed")
-    , F.col("cloudCoverage")
-    , F.col("type")
+    explode("hourly_timestamps").alias("hourly_timestamps")\
+    , col("flightId")
+    , col("stationId")
+    , col("issueTime")
+    , col("forecastValidFrom")
+    , col("forecastValidTo")
+    , col("windDirection")
+    , col("windSpeed")
+    , col("cloudCoverage")
+    , col("type")
 ).persist()
 
 # Show the resulting DataFrame
@@ -141,11 +141,11 @@ hourly_df = flightWithId_df.withColumn(
 
 # Unfortunately, Buckets are not supported with Delta lakes in Databricks.
 # However, depending on the business use case, we can define our partitions instead. Ideally, we should use hourly_timestamps as a partition key. But again, that would create 24*30*12 = 8640 small paritions (with hardly 5-10 records based on the overlapping hours) just to process a year's worth of data. So, here I am going with a bigger partition volume by creating year and month, hence Extracting yyyy-MM from the issueTime column to use as a partition key
-updated_hourly_df = hourly_df.withColumn("yearMonth", F.date_format(F.col("hourly_timestamps"), "yyyy-MM"))
+updated_hourly_df = hourly_df.withColumn("yearMonth", date_format(col("hourly_timestamps"), "yyyy-MM"))
 # display(updated_hourly_df)
 
 # Assign appropriate data type for the hourly_timestamps
-updated_hourly_df = updated_hourly_df.withColumn("hourly_timestamps", F.date_format(F.to_timestamp("hourly_timestamps", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"), "yyyy-MM-dd HH:mm:ss"))
+updated_hourly_df = updated_hourly_df.withColumn("hourly_timestamps", date_format(to_timestamp("hourly_timestamps", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"), "yyyy-MM-dd HH:mm:ss"))
 
 # Persist the DataFrame for easy retrieval
 updated_hourly_df.persist()
@@ -169,7 +169,7 @@ hourlyTimestamps_df = spark.sql("""
 # display(hourlyTimestamps_df)
 
 # Perform broadcast join on smaller dataframe hourlyTimestamps_df to optimize it for hourly data processing
-flight_withHourlyTS_updated = partitioned_df.join(F.broadcast(hourlyTimestamps_df), on=["flightId", "hourly_timestamps"], how="inner")
+flight_withHourlyTS_updated = partitioned_df.join(broadcast(hourlyTimestamps_df), on=["flightId", "hourly_timestamps"], how="inner")
 # display(flight_withHourlyTS_updated)
 
 # Flatten cloudCoverage JSON into separate columns
@@ -234,11 +234,11 @@ mode_df = spark.sql("""
 
 # Combine metrics into final DataFrame and alias the output columns properly
 final_df = all_metrics_except_windDirection.join(mode_df, on='hourly_timestamps').select(
-    F.col("hourly_timestamps").alias("Hour"),
-    F.col("Avg_wind_speed").alias("Average wind speed (knots)"),
-    F.col("windDirection").alias("Most common wind direction (degree)"),
-    F.col("max_cloud_cover").alias("Maximum cloud coverage (%)"),
-    F.col("avg_cloud_baseHeight").alias("Average cloud base height (feet)")
+    col("hourly_timestamps").alias("Hour"),
+    col("Avg_wind_speed").alias("Average wind speed (knots)"),
+    col("windDirection").alias("Most common wind direction (degree)"),
+    col("max_cloud_cover").alias("Maximum cloud coverage (%)"),
+    col("avg_cloud_baseHeight").alias("Average cloud base height (feet)")
 ).persist()
 # display(final_df)
 
