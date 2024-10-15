@@ -22,7 +22,6 @@ spark = SparkSession.builder \
         .appName("Hourly Weather Summary") \
         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
         .config("spark.sql.adaptive.enabled", "true") \
-        .config("spark.sql.sources.partitionOverwriteMode", "dynamic") \
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
         .config("spark.sql.adaptive.coalescePartitions.parallelismFirst", "true") \
         .getOrCreate()
